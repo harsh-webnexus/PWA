@@ -1,0 +1,17 @@
+{
+  "name": "fcm-pwa-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "fcm-pwa-notifications": "file:..",
+    "firebase-admin": "^13.4.0"
+  }
+}

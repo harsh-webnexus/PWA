@@ -1,0 +1,25 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", "Avenir Next", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #e8eaed;
+  background: #0e1014;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background:
+    radial-gradient(1200px 500px at 10% -10%, #1b3d36 0%, transparent 55%),
+    #0e1014;
+}
