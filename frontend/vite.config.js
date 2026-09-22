@@ -1,26 +1,13 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FIREBASE_COMPAT_VERSION = '11.10.0';
-const SW_CACHE = 'fcm-pwa-v4';
-const SW_VERSION = 'v4-closed-push';
+const SW_CACHE = 'fcm-pwa-v5';
+const SW_VERSION = 'v5-native-push';
 
-function buildFirebaseMessagingSw(env) {
-  const firebaseConfig = {
-    apiKey: env.VITE_FIREBASE_API_KEY || '',
-    authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || '',
-    projectId: env.VITE_FIREBASE_PROJECT_ID || '',
-    storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || '',
-    messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-    appId: env.VITE_FIREBASE_APP_ID || '',
-  };
-
-  // Build as plain string concat — nested template literals break Vite's config parse.
+function buildFirebaseMessagingSw() {
+  // Native push listener — no Firebase CDN importScripts (reliable after Android kills Chrome).
   return [
-    '/* Generated from VITE_FIREBASE_* environment variables. Do not hardcode secrets here. */',
+    '/* Generated service worker: native Web Push (no Firebase CDN). */',
     "'use strict';",
     '',
     "self.addEventListener('notificationclick', (event) => {",
@@ -101,25 +88,28 @@ function buildFirebaseMessagingSw(env) {
     '  );',
     '});',
     '',
-    `const firebaseConfig = ${JSON.stringify(firebaseConfig)};`,
-    'const hasConfig = Object.values(firebaseConfig).every(Boolean);',
+    "self.addEventListener('push', (event) => {",
+    "  console.log('[SW] Push event received', SW_VERSION);",
+    '  event.waitUntil((async () => {',
+    '    let payload = {};',
+    '    try {',
+    "      if (event.data) {",
+    '        payload = event.data.json();',
+    '      }',
+    '    } catch (error) {',
+    "      console.warn('[SW] Failed to parse push JSON', error);",
+    '      try {',
+    "        payload = { data: { body: event.data ? event.data.text() : '' } };",
+    '      } catch {',
+    '        payload = {};',
+    '      }',
+    '    }',
     '',
-    'if (!hasConfig) {',
-    "  console.error('[firebase-messaging-sw.js] Missing Firebase config. Set VITE_FIREBASE_* in .env and restart.');",
-    '} else {',
-    `  importScripts('https://www.gstatic.com/firebasejs/${FIREBASE_COMPAT_VERSION}/firebase-app-compat.js');`,
-    `  importScripts('https://www.gstatic.com/firebasejs/${FIREBASE_COMPAT_VERSION}/firebase-messaging-compat.js');`,
-    '',
-    '  firebase.initializeApp(firebaseConfig);',
-    '  const messaging = firebase.messaging();',
-    '',
-    '  // Data-only FCM always hits this handler, even with the PWA fully closed.',
-    '  messaging.onBackgroundMessage((payload) => {',
-    "    console.log('[SW] Push event received (FCM background)', SW_VERSION, payload);",
-    '',
-    "    const title = (payload.notification && payload.notification.title) || (payload.data && payload.data.title) || 'New notification';",
-    "    const body = (payload.notification && payload.notification.body) || (payload.data && payload.data.body) || '';",
-    "    const url = (payload.fcmOptions && payload.fcmOptions.link) || (payload.data && payload.data.url) || '/';",
+    '    const notification = payload.notification || {};',
+    '    const data = payload.data || {};',
+    "    const title = notification.title || data.title || 'New notification';",
+    "    const body = notification.body || data.body || '';",
+    "    const url = (payload.fcmOptions && payload.fcmOptions.link) || data.url || '/';",
     '',
     '    const uiMessage = { title: title, body: body, receivedAt: new Date().toLocaleTimeString() };',
     '',
@@ -131,32 +121,34 @@ function buildFirebaseMessagingSw(env) {
     "      console.warn('[SW] BroadcastChannel failed', error);",
     '    }',
     '',
-    '    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (clientList) {',
-    '      for (var i = 0; i < clientList.length; i++) {',
-    "        clientList[i].postMessage({ type: 'FCM_MESSAGE', payload: payload });",
-    '      }',
-    '    });',
+    '    const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });',
+    '    for (var i = 0; i < clientList.length; i++) {',
+    "      clientList[i].postMessage({ type: 'FCM_MESSAGE', payload: payload });",
+    '    }',
     '',
     '    var options = {',
     '      body: body,',
-    "      icon: '/icons/icon-192.png',",
-    "      badge: '/icons/icon-192.png',",
+    "      icon: notification.icon || '/icons/icon-192.png',",
+    "      badge: notification.badge || '/icons/icon-192.png',",
     '      renotify: true,',
     "      tag: 'fcm-' + Date.now(),",
     '      requireInteraction: false,',
-    '      data: Object.assign({ url: url }, payload.data || {}),',
+    '      data: Object.assign({ url: url }, data),',
     '    };',
     '',
-    "    console.log('[SW] Notification displayed (closed/background path)', title);",
-    '    // Returning this Promise keeps the SW alive until the OS toast is shown.',
-    '    return self.registration.showNotification(title, options);',
-    '  });',
-    '}',
+    "    console.log('[SW] Notification displayed (native push path)', title);",
+    '    await self.registration.showNotification(title, options);',
+    '  })());',
+    '});',
+    '',
+    "self.addEventListener('pushsubscriptionchange', (event) => {",
+    "  console.log('[SW] pushsubscriptionchange', SW_VERSION, event);",
+    '});',
     '',
   ].join('\n');
 }
 
-function firebaseMessagingSwPlugin(env) {
+function firebaseMessagingSwPlugin() {
   const serveSw = (req, res, next) => {
     const url = req.url?.split('?')[0];
     if (url !== '/firebase-messaging-sw.js') {
@@ -167,7 +159,7 @@ function firebaseMessagingSwPlugin(env) {
     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
     res.setHeader('Service-Worker-Allowed', '/');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.end(buildFirebaseMessagingSw(env));
+    res.end(buildFirebaseMessagingSw());
   };
 
   return {
@@ -182,24 +174,25 @@ function firebaseMessagingSwPlugin(env) {
       this.emitFile({
         type: 'asset',
         fileName: 'firebase-messaging-sw.js',
-        source: buildFirebaseMessagingSw(env),
+        source: buildFirebaseMessagingSw(),
       });
     },
   };
 }
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, __dirname, 'VITE_');
-
+export default defineConfig(() => {
   return {
-    plugins: [react(), firebaseMessagingSwPlugin(env)],
+    plugins: [react(), firebaseMessagingSwPlugin()],
     server: {
       host: true,
       port: 5173,
       strictPort: true,
+      allowedHosts: [
+         'push.kartify.info',
+      ],
       proxy: {
         '/api': {
-          target: 'http://localhost:3001',
+          target: 'https://backend.kartify.info',
           changeOrigin: true,
         },
       },
@@ -210,7 +203,7 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       proxy: {
         '/api': {
-          target: 'http://localhost:3001',
+          target: 'https://backend.kartify.info',
           changeOrigin: true,
         },
       },

@@ -123,19 +123,19 @@ export async function registerMessagingServiceWorker() {
   }
 
   try {
-    // Drop stale SW copies from earlier ?v= experiments so push always hits v4.
+    // Drop stale SW copies from earlier ?v= experiments so push always hits v5.
     const existing = await navigator.serviceWorker.getRegistrations();
     await Promise.all(
       existing.map(async (reg) => {
         const script = reg.active?.scriptURL || reg.installing?.scriptURL || reg.waiting?.scriptURL || '';
-        if (script.includes('firebase-messaging-sw.js') && !script.includes('v=4')) {
+        if (script.includes('firebase-messaging-sw.js') && !script.includes('v=5')) {
           console.log('[FCM] Unregistering stale SW', script);
           await reg.unregister();
         }
       })
     );
 
-    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js?v=4', {
+    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js?v=5', {
       scope: '/',
       updateViaCache: 'none',
     });
@@ -332,7 +332,13 @@ export async function listenForForegroundMessages(onPayload) {
     console.log('[FCM] foreground message', payload);
     const uiMessage = publishFcmToUi(payload);
     onPayload?.(uiMessage);
-    await showBrowserNotification(payload);
+
+    // v5 native SW already shows the OS toast via its push listener — avoid duplicates.
+    const controlling = navigator.serviceWorker?.controller?.scriptURL || '';
+    const isNativeV5 = controlling.includes('firebase-messaging-sw.js') && controlling.includes('v=5');
+    if (!isNativeV5) {
+      await showBrowserNotification(payload);
+    }
   });
 
   return unsubscribeOnMessage;
@@ -383,7 +389,7 @@ export async function sendTestNotification(token, overrides = {}) {
  * as soon as /api/send-notification succeeds.
  */
 export function subscribeBackendSentEvents(onSent) {
-  const url = import.meta.env.DEV ? 'http://localhost:3001/api/events' : '/api/events';
+  const url = import.meta.env.DEV ? 'https://backend.kartify.info/api/events' : '/api/events';
   const source = new EventSource(url);
 
   const handleSent = (event) => {

@@ -2,6 +2,7 @@
   "name": "FCM Notifications PWA",
   "short_name": "FCM PWA",
   "description": "Firebase Cloud Messaging notifications demo",
+  "gcm_sender_id": "103953800507",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

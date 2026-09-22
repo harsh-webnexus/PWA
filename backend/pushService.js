@@ -4,10 +4,8 @@ import { listTokens, removeTokens } from './tokenStore.js';
 /**
  * Send a Web Push (via FCM) to one token or every stored device token.
  *
- * IMPORTANT: use a DATA-only message for web closed-app delivery.
- * If a top-level `notification` is present, browsers often only surface it when
- * a client becomes visible again. Data-only always goes to the service worker
- * `onBackgroundMessage` handler, which calls showNotification().
+ * Sends both data + webpush.notification so Android can surface the toast
+ * after Chrome is killed from RAM (native SW push listener + notification payload).
  */
 export async function sendPushNotification({
   token,
@@ -16,17 +14,27 @@ export async function sendPushNotification({
   link = '/',
   data = {},
 } = {}) {
+  const safeTitle = String(title || 'New notification');
+  const safeBody = String(body || '');
+  const safeLink = String(link || '/');
+
   const payloadBase = {
     data: {
-      title: String(title || 'New notification'),
-      body: String(body || ''),
-      url: String(link || '/'),
+      title: safeTitle,
+      body: safeBody,
+      url: safeLink,
       ...Object.fromEntries(
         Object.entries(data).map(([key, value]) => [key, String(value ?? '')])
       ),
     },
     webpush: {
-      fcmOptions: { link: String(link || '/') },
+      notification: {
+        title: safeTitle,
+        body: safeBody,
+        icon: '/icons/icon-192.png',
+        badge: '/icons/icon-192.png',
+      },
+      fcmOptions: { link: safeLink },
       headers: {
         Urgency: 'high',
         TTL: '86400',
@@ -78,7 +86,7 @@ export async function sendPushNotification({
     .map((r) => r.reason?.message || String(r.reason));
 
   return {
-    mode: 'data-only-webpush',
+    mode: 'webpush-notification-and-data',
     sent,
     failed,
     total: targets.length,
